@@ -54,6 +54,7 @@ Settings are loaded from **`.env` in the project root** (next to `pyproject.toml
 | `QUERYSMITH_DEFAULT_TIMEOUT_MS` | No | `30000` | Default `maxTimeMS` for bounded execution. |
 | `QUERYSMITH_SAMPLE_SIZE` | No | `80` | Documents sampled for schema inference. |
 | `QUERYSMITH_MAX_PIPELINE_STAGES_WARN` | No | `25` | Stage count threshold for PIPE-01 warning. |
+| `QUERYSMITH_VIEW_FLATTEN_TIMEOUT_MS` | No | `60000` | If a query exceeds this (ms) and the source is a view, triggers view flattening. |
 
 **Cursor MCP note:** The MCP server process does not inherit Cursor's UI-level settings. Duplicate `MONGODB_URI` / `OPENAI_API_KEY` into **Settings → MCP → QuerySmith → Environment**, or ensure the `.env` file is populated before starting the server.
 
@@ -300,6 +301,37 @@ The report includes: executive summary, namespace/sampling info, suspected bottl
 
 ---
 
+## View flattening
+
+QuerySmith automatically detects when views are causing performance problems and generates optimized alternatives.
+
+### Branch 1: Source view timed out
+
+When a query against a view exceeds `QUERYSMITH_VIEW_FLATTEN_TIMEOUT_MS` (default 60s) or times out:
+
+1. Recursively resolves the view chain to the base collection (handles nested views)
+2. Concatenates the view pipeline + user query pipeline into a single flattened pipeline
+3. Asks the LLM to prune unnecessary view stages (e.g. a 17-stage view might only need 10-12 stages for this specific query)
+4. Reports the pruned pipeline as an alternative that targets the base collection directly
+
+**Rule finding:** `VF-01` (severity: warn)
+
+### Branch 2: Slow `$lookup` targets a view
+
+When the explain plan identifies a slow `$lookup` stage (high `executionTimeMillisEstimate` or `totalDocsExamined`) and that lookup's target collection is actually a view:
+
+1. Resolves the view to its base collection
+2. Generates a rewritten pipeline where the `$lookup` targets the base collection with only the necessary view stages inlined as a sub-pipeline
+3. Fast lookups on views are left untouched — only slow ones trigger flattening
+
+**Rule finding:** `VF-02` (severity: warn)
+
+### Safety
+
+All view-flattened suggestions include a safety warning: verify result equivalence (row count + sample row comparison) before adopting in production.
+
+---
+
 ## V1 vs V2 checklist
 
 ### V1 — Diagnostic + Assisted Optimization (current)
@@ -325,8 +357,11 @@ The report includes: executive summary, namespace/sampling info, suspected bottl
 | MCP server (10 tools, stdio transport) | ✅ Implemented |
 | CLI (`querysmith run` + `querysmith mcp-test`) | ✅ Implemented |
 | No automatic prod writes | ✅ Enforced by design |
+| View flattening: source view timed out → prune & target base collection (VF-01) | ✅ Implemented |
+| View flattening: slow `$lookup` on view → inline view stages (VF-02) | ✅ Implemented |
+| Recursive view chain resolution (view → view → base) | ✅ Implemented |
+| Per-lookup explain stats extraction | ✅ Implemented |
 | Explain on **suggested** (rewritten) pipeline | ❌ Not yet |
-| View pipeline inlining / expansion for analysis | ❌ Not yet |
 | Audit log (persist runs) | ❌ Not yet |
 | MCP resources (schema://, indexes://, playbook://) | ❌ Not yet |
 | MCP prompts (optimize_aggregation, etc.) | ❌ Not yet |

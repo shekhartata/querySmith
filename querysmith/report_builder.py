@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from querysmith.models import LLMSuggestion, RuleFinding, V1Report
+from querysmith.models import LLMSuggestion, RuleFinding, V1Report, ViewFlattenSuggestion
 
 
 def build_v1_report(
@@ -19,6 +19,7 @@ def build_v1_report(
     environment: str,
     original_query_summary: str,
     metadata: dict[str, Any],
+    view_flatten_suggestions: list[ViewFlattenSuggestion] | None = None,
 ) -> V1Report:
     from querysmith.models import IndexRecommendation
 
@@ -41,6 +42,7 @@ def build_v1_report(
         environment=environment,
         original_query_summary=original_query_summary,
         metadata=metadata,
+        view_flatten_suggestions=view_flatten_suggestions or [],
     )
 
 
@@ -92,6 +94,35 @@ def report_to_markdown(report: V1Report) -> str:
     lines.append("\n### Index recommendations\n")
     for ix in report.index_recommendations:
         lines.append(f"- keys `{ix.keys}` — {ix.rationale}\n")
+    if report.view_flatten_suggestions:
+        lines.append("\n### View flattening analysis\n")
+        for vf in report.view_flatten_suggestions:
+            trigger_label = (
+                "Source view timed out" if vf.trigger == "source_timeout"
+                else f"Slow $lookup at stage {vf.lookup_stage_index} → view '{vf.lookup_from or vf.original_source}'"
+            )
+            lines.append(f"**Trigger:** {trigger_label}\n")
+            lines.append(f"- View chain: `{'` → `'.join(vf.view_chain)}`\n")
+            lines.append(f"- Base collection: `{vf.base_collection}`\n")
+            lines.append(
+                f"- View stages: {vf.view_stage_count} | User stages: {vf.user_stage_count} "
+                f"| Flattened: {len(vf.flattened_pipeline)}\n"
+            )
+            if vf.suggested_pipeline:
+                lines.append(f"\n_Rationale:_ {vf.rationale}\n")
+                lines.append(f"_Confidence:_ {vf.confidence}\n")
+                for r in vf.risks:
+                    lines.append(f"- risk: {r}\n")
+                lines.append("\n**Suggested pruned pipeline (targets base collection):**\n\n```json\n")
+                lines.append(json.dumps(vf.suggested_pipeline, indent=2, default=str))
+                lines.append("\n```\n")
+            else:
+                lines.append(f"\n_No pruned pipeline generated._ {vf.rationale}\n")
+            lines.append(
+                "\n> **Safety:** Verify result equivalence (row count + sample comparison) before adopting "
+                "any flattened pipeline in production.\n\n"
+            )
+
     lines.append("\n### Risk notes\n")
     for r in report.risk_notes:
         lines.append(f"- {r}\n")

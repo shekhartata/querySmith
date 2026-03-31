@@ -20,6 +20,7 @@ class QueryInput(BaseModel):
 class SourceInfo(BaseModel):
     name: str
     kind: Literal["collection", "view"]
+    view_on: str | None = None
     view_pipeline: list[dict[str, Any]] | None = None
 
 
@@ -80,6 +81,22 @@ class IndexRecommendation(BaseModel):
     alignment: list[str] = Field(default_factory=list)
 
 
+class ViewFlattenSuggestion(BaseModel):
+    trigger: str
+    original_source: str
+    base_collection: str
+    view_chain: list[str] = Field(default_factory=list)
+    view_stage_count: int = 0
+    user_stage_count: int = 0
+    flattened_pipeline: list[dict[str, Any]] = Field(default_factory=list)
+    suggested_pipeline: list[dict[str, Any]] | None = None
+    rationale: str = ""
+    confidence: float = 0.0
+    risks: list[str] = Field(default_factory=list)
+    lookup_stage_index: int | None = None
+    lookup_from: str | None = None
+
+
 class V1Report(BaseModel):
     issue_summary: str
     suspected_bottlenecks: list[str]
@@ -92,3 +109,4 @@ class V1Report(BaseModel):
     environment: str
     original_query_summary: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    view_flatten_suggestions: list[ViewFlattenSuggestion] = Field(default_factory=list)

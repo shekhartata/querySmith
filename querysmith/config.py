@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     default_timeout_ms: int = Field(default=30_000, validation_alias="QUERYSMITH_DEFAULT_TIMEOUT_MS")
     sample_size: int = Field(default=80, validation_alias="QUERYSMITH_SAMPLE_SIZE")
     max_pipeline_stages_warn: int = Field(default=25, validation_alias="QUERYSMITH_MAX_PIPELINE_STAGES_WARN")
+    view_flatten_timeout_ms: int = Field(default=60_000, validation_alias="QUERYSMITH_VIEW_FLATTEN_TIMEOUT_MS")
     openai_api_key: str | None = Field(default=None, validation_alias=AliasChoices("OPENAI_API_KEY", "QUERYSMITH_OPENAI_API_KEY"))
     openai_base_url: str | None = Field(default=None, validation_alias="QUERYSMITH_OPENAI_BASE_URL")
     llm_model: str = Field(default="gpt-4o-mini", validation_alias="QUERYSMITH_LLM_MODEL")

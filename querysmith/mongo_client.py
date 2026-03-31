@@ -82,9 +82,34 @@ class MongoService:
             if ctype == "view":
                 opts = coll.get("options") or {}
                 pipeline = list(opts.get("pipeline") or [])
-                return SourceInfo(name=source, kind="view", view_pipeline=pipeline)
+                view_on = opts.get("viewOn") or None
+                return SourceInfo(name=source, kind="view", view_on=view_on, view_pipeline=pipeline)
             return SourceInfo(name=source, kind="collection", view_pipeline=None)
         return SourceInfo(name=source, kind="collection", view_pipeline=None)
+
+    def resolve_source_deep(
+        self, database: str, source: str, max_depth: int = 10,
+    ) -> tuple[str, list[str], list[dict[str, Any]]]:
+        """Recursively resolve a view chain to the base collection.
+
+        Returns (base_collection, chain, combined_view_pipeline) where the
+        combined pipeline is ordered deepest-first so that prepending the
+        user's stages produces the correct execution order.
+        """
+        chain: list[str] = [source]
+        pipelines: list[list[dict[str, Any]]] = []
+        current = source
+        for _ in range(max_depth):
+            src = self.resolve_source(database, current)
+            if src.kind != "view" or not src.view_on:
+                break
+            pipelines.append(src.view_pipeline or [])
+            current = src.view_on
+            chain.append(current)
+        combined: list[dict[str, Any]] = []
+        for p in reversed(pipelines):
+            combined.extend(p)
+        return current, chain, combined
 
     def namespace_diagnostics(self, database: str, source: str) -> tuple[bool, int | None]:
         """Whether the name exists in the DB, and estimated_document_count when applicable."""
@@ -270,6 +295,37 @@ def _extract_execution_stats(raw: dict[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError, IndexError, StopIteration):
         pass
     return out
+
+
+def extract_lookup_stage_stats(raw_explain: dict[str, Any]) -> list[dict[str, Any]]:
+    """Best-effort extraction of per-$lookup performance stats from raw explain output.
+
+    Returns a list of dicts with keys: from, executionTimeMillisEstimate, totalDocsExamined.
+    """
+    results: list[dict[str, Any]] = []
+    try:
+        cursor = raw_explain.get("cursor") or {}
+        first = cursor.get("firstBatch") or []
+        if not first:
+            return results
+        root = first[0] if isinstance(first, list) and first else {}
+        stages = root.get("stages") or []
+        for stage in stages:
+            op = next(iter(stage.keys()), "")
+            if op != "$lookup":
+                continue
+            body = stage[op]
+            if not isinstance(body, dict):
+                continue
+            results.append({
+                "from": body.get("from", ""),
+                "executionTimeMillisEstimate": body.get("executionTimeMillisEstimate"),
+                "totalDocsExamined": body.get("totalDocsExamined"),
+                "nReturned": body.get("nReturned"),
+            })
+    except (KeyError, TypeError, IndexError):
+        pass
+    return results
 
 
 def _summarize_plan(raw: dict[str, Any]) -> str | None:
