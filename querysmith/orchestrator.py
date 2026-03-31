@@ -17,7 +17,7 @@ from querysmith.rules_engine import (
     index_recommendations_from_pipeline,
 )
 
-_SLOW_LOOKUP_TIME_MS = 5_000
+_SLOW_LOOKUP_TIME_MS = 15_000
 _SLOW_LOOKUP_DOCS_EXAMINED = 100_000
 _MAX_LOOKUP_FLATTEN = 2
 
